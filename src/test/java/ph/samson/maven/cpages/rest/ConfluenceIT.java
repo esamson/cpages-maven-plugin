@@ -17,6 +17,7 @@
 package ph.samson.maven.cpages.rest;
 
 import java.io.File;
+import java.io.IOException;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -121,7 +122,7 @@ public class ConfluenceIT {
     }
 
     @Test
-    public void testCreateAttachments() {
+    public void testCreateAttachments() throws IOException {
         String pageId = "30113837";
         Confluence instance = new Confluence(baseUri, username, password);
         instance.createAttachments(pageId,

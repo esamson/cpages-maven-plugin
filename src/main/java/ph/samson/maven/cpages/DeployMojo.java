@@ -73,6 +73,10 @@ public class DeployMojo extends AbstractMojo {
             defaultValue = "${basedir}/src")
     protected File srcDir;
 
+    @Parameter(property = "genDir",
+            defaultValue = "${project.build.directory}/generated")
+    protected File genDir;
+
     @Parameter(name = "serverId",
             property = "confluence.serverId",
             required = true)
@@ -136,6 +140,32 @@ public class DeployMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * Get the equivalent output directory for the given source directory.
+     *
+     * The output directory is created if necessary.
+     *
+     * @param sourceDir source directory
+     * @return output directory
+     * @throws IOException if the output directory does not exist and cannot be
+     * created.
+     */
+    private File outputDir(Path sourceDir) throws IOException {
+        File outputDir = genDir.toPath()
+                .resolve(srcDir.toPath().relativize(sourceDir))
+                .toFile();
+
+        if (!outputDir.exists()) {
+            if (!outputDir.mkdirs()) {
+                if (!outputDir.isDirectory()) {
+                    throw new IOException("Cannot create " + outputDir);
+                }
+            }
+        }
+
+        return outputDir;
+    }
+
     private static final String CPAGES_URL
             = "https://github.com/esamson/cpages-maven-plugin";
 
@@ -170,7 +200,7 @@ public class DeployMojo extends AbstractMojo {
     }
 
     private void updateAttachments(Confluence confluence, String pageId,
-            List<File> attachments) {
+            List<File> attachments) throws IOException {
         Map<String, File> filenameMap = new HashMap<>();
         for (File attachment : attachments) {
             filenameMap.put(attachment.getName(), attachment);
@@ -247,8 +277,11 @@ public class DeployMojo extends AbstractMojo {
                 throw new IllegalArgumentException(
                         "More than one content file in " + dir);
             }
+            File contentFile = contentFiles[0];
+            File outputDir = outputDir(contentFile.toPath().getParent());
+            PlantUml.generate(dir, outputDir);
 
-            ConfluencePage cPage = convert(contentFiles[0].toPath());
+            ConfluencePage cPage = convert(contentFile.toPath());
             Page deployedPage = deploy(cPage, pathMap.get(dir.getParent()));
             pathMap.put(dir, deployedPage);
 
@@ -260,7 +293,7 @@ public class DeployMojo extends AbstractMojo {
                     StandardCharsets.UTF_8);
             RootNode root = pdp.parseMarkdown(markdownSource.toCharArray());
             ConfluenceStorageSerializer css = new ConfluenceStorageSerializer(
-                    markdownFile.getParent().toFile());
+                    outputDir(markdownFile.getParent()));
 
             String contents = css.toHtml(root);
             List<File> attachments = css.getAttachments();
@@ -268,7 +301,8 @@ public class DeployMojo extends AbstractMojo {
             return new ConfluencePage(title, contents, attachments);
         }
 
-        private Page deploy(ConfluencePage page, Page parentPage) {
+        private Page deploy(ConfluencePage page, Page parentPage) throws
+                IOException {
             List<File> attachments = page.getAttachments();
             Page cPage = confluence.getPage(spaceKey, page.getTitle());
             String contents = page.getContents() + footer();

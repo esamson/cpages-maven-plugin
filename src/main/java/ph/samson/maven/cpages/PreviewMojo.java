@@ -77,6 +77,33 @@ public class PreviewMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * Get the equivalent output directory for the given source directory.
+     *
+     * The output directory is created if necessary.
+     *
+     * @param sourceDir source directory
+     * @return output directory
+     * @throws IOException if the output directory does not exist and cannot be
+     * created.
+     */
+    private File outputDir(Path sourceDir) throws IOException {
+
+        File outputDir = previewDir.toPath()
+                .resolve(srcDir.toPath().relativize(sourceDir))
+                .toFile();
+
+        if (!outputDir.exists()) {
+            if (!outputDir.mkdirs()) {
+                if (!outputDir.isDirectory()) {
+                    throw new IOException("Cannot create " + outputDir);
+                }
+            }
+        }
+
+        return outputDir;
+    }
+
     private class PreviewBuilder extends SimpleFileVisitor<Path> {
 
         private final PegDownProcessor pdp = new PegDownProcessor();
@@ -101,22 +128,17 @@ public class PreviewMojo extends AbstractMojo {
                 throw new IllegalArgumentException(
                         "More than one content file in " + dir);
             }
+            File contentFile = contentFiles[0];
+            File outputDir = outputDir(contentFile.toPath().getParent());
+            PlantUml.generate(dir, outputDir);
 
-            return preview(contentFiles[0].toPath());
+            return preview(contentFile.toPath(), outputDir);
         }
 
-        private FileVisitResult preview(Path file) throws IOException {
+        private FileVisitResult preview(Path file, File outputDir)
+                throws IOException {
             String sourceName = file.getFileName().toString();
             int extIdx = sourceName.lastIndexOf("md");
-
-            File outputDir = previewDir.toPath()
-                    .resolve(srcDir.toPath().relativize(file.getParent()))
-                    .toFile();
-            if (!outputDir.mkdirs()) {
-                if (!outputDir.isDirectory()) {
-                    throw new IOException("Cannot create " + outputDir);
-                }
-            }
 
             log.info("converting {}", file);
 

@@ -18,6 +18,7 @@ package ph.samson.maven.cpages.rest;
 
 import com.google.common.collect.ImmutableList;
 import java.io.File;
+import java.io.IOException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
@@ -38,6 +39,8 @@ import ph.samson.maven.cpages.rest.model.Version;
 
 import static com.cedarsoftware.util.io.JsonWriter.formatJson;
 import static com.cedarsoftware.util.io.JsonWriter.objectToJson;
+import static com.google.common.hash.Hashing.sha256;
+import static java.nio.file.Files.readAllBytes;
 
 /**
  * Confluence REST API client
@@ -137,14 +140,16 @@ public class Confluence {
         return response.readEntity(AttachmentsResult.class);
     }
 
-    public AttachmentsResult createAttachments(String pageId, File... files) {
+    public AttachmentsResult createAttachments(String pageId, File... files)
+            throws IOException {
         WebTarget attachment = webTarget.path(pageId).path("child")
                 .path("attachment");
 
         FormDataMultiPart multiPart = new FormDataMultiPart();
         for (File fileEntity : files) {
             multiPart.bodyPart(new FileDataBodyPart("file", fileEntity));
-            multiPart.field("comment", fileEntity.getName() + "xxx");
+            multiPart.field("comment", sha256().hashBytes(
+                    readAllBytes(fileEntity.toPath())).toString());
         }
 
         Response response = attachment.request(MediaType.APPLICATION_JSON_TYPE)
