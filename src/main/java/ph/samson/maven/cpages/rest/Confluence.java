@@ -18,7 +18,6 @@ package ph.samson.maven.cpages.rest;
 
 import com.google.common.collect.ImmutableList;
 import java.io.File;
-import java.io.IOException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
@@ -88,21 +87,14 @@ public class Confluence {
             String wikiText) {
         Page page = new Page(spaceKey, parentId, title, wikiText, "storage");
         if (log.isInfoEnabled()) {
-            try {
-                log.info("createPage: {}", objectToJson(page));
-            } catch (IOException ex) {
-            }
+            log.info("createPage: {}", objectToJson(page));
         }
         Response response = webTarget.request().post(Entity.json(page));
         int status = response.getStatus();
 
         if (log.isInfoEnabled() && response.bufferEntity()) {
             String body = response.readEntity(String.class);
-            try {
-                log.info("response: {}; {}", status, formatJson(body));
-            } catch (IOException ex) {
-                throw new RuntimeException(ex);
-            }
+            log.info("response: {}; {}", status, formatJson(body));
         }
 
         return response.readEntity(Page.class);
@@ -190,11 +182,7 @@ public class Confluence {
     private void logDebug(Response response, int status) throws RuntimeException {
         if (log.isDebugEnabled() && response.bufferEntity()) {
             String body = response.readEntity(String.class);
-            try {
-                log.debug("response: {}; {}", status, formatJson(body));
-            } catch (IOException ex) {
-                throw new RuntimeException(ex);
-            }
+            log.debug("response: {}; {}", status, formatJson(body));
         }
     }
 }

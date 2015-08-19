@@ -25,10 +25,13 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
 import static org.junit.Assert.*;
+
 import org.junit.Ignore;
 import org.pegdown.PegDownProcessor;
 import org.pegdown.ast.AbbreviationNode;
+import org.pegdown.ast.AnchorLinkNode;
 import org.pegdown.ast.AutoLinkNode;
 import org.pegdown.ast.BlockQuoteNode;
 import org.pegdown.ast.BulletListNode;
@@ -96,6 +99,12 @@ public class PegdownTest {
         @Override
         public void visit(AbbreviationNode node) {
             log.debug(indent[indentLevel] + "AbbreviationNode: {}", node);
+            visitChildren(node);
+        }
+
+        @Override
+        public void visit(AnchorLinkNode node) {
+            log.debug(indent[indentLevel] + "AnchorLinkNode: {}", node);
             visitChildren(node);
         }
 
