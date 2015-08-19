@@ -45,22 +45,28 @@ public class PreviewMojo extends AbstractMojo {
     private static final Logger log
             = LoggerFactory.getLogger(PreviewMojo.class);
 
-    @Parameter(property = "wikiDir",
-            defaultValue = "${project.build.directory}/wiki")
-    protected File wikiDir;
+    @Parameter(property = "srcDir",
+            defaultValue = "${basedir}/src")
+    protected File srcDir;
+
+    @Parameter(property = "previewDir",
+            defaultValue = "${project.build.directory}/preview")
+    protected File previewDir;
 
     private final List<Thread> viewers = new ArrayList<>();
 
     @Override
     public void execute() throws MojoExecutionException {
-        if (!wikiDir.isDirectory()) {
-            log.info("skip non existing wikiDir {}", wikiDir);
-            return;
+        if (!srcDir.isDirectory()) {
+            throw new MojoExecutionException("No src dir " + srcDir);
         }
+
         try {
-            Files.walkFileTree(wikiDir.toPath(), new Converter());
+            Files.walkFileTree(srcDir.toPath(), new PreviewBuilder());
         } catch (IOException ex) {
             throw new MojoExecutionException("Markdown conversion failed", ex);
+        } catch (IllegalArgumentException ex) {
+            throw new MojoExecutionException("Bad wiki dir", ex);
         }
 
         for (Thread preview : viewers) {
@@ -71,25 +77,53 @@ public class PreviewMojo extends AbstractMojo {
         }
     }
 
-    private class Converter extends SimpleFileVisitor<Path> {
+    private class PreviewBuilder extends SimpleFileVisitor<Path> {
 
         private final PegDownProcessor pdp = new PegDownProcessor();
 
         @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                throws IOException {
+        public FileVisitResult preVisitDirectory(Path dir,
+                BasicFileAttributes attrs) throws IOException {
+            if (dir.toFile().equals(srcDir)) {
+                // skip top directory
+                return FileVisitResult.CONTINUE;
+            }
+
+            log.info("preview: {}", dir);
+            File[] contentFiles = dir.toFile().listFiles((file)
+                    -> file.getName().endsWith(".md"));
+            if (contentFiles.length < 1) {
+                log.error("{} has no page content", dir);
+                throw new IllegalArgumentException("No page content in " + dir);
+            } else if (contentFiles.length > 1) {
+                log.error("{} has more than one content file: {}",
+                        dir, contentFiles);
+                throw new IllegalArgumentException(
+                        "More than one content file in " + dir);
+            }
+
+            return preview(contentFiles[0].toPath());
+        }
+
+        private FileVisitResult preview(Path file) throws IOException {
             String sourceName = file.getFileName().toString();
             int extIdx = sourceName.lastIndexOf("md");
-            if (extIdx == -1) {
-                return FileVisitResult.CONTINUE;
+
+            File outputDir = previewDir.toPath()
+                    .resolve(srcDir.toPath().relativize(file.getParent()))
+                    .toFile();
+            if (!outputDir.mkdirs()) {
+                if (!outputDir.isDirectory()) {
+                    throw new IOException("Cannot create " + outputDir);
+                }
             }
 
             log.info("converting {}", file);
 
             String html = pdp.markdownToHtml(
                     new String(Files.readAllBytes(file), UTF_8));
-            Path htmlFile = file.resolveSibling(
-                    sourceName.substring(0, extIdx) + "html");
+            Path htmlFile = new File(outputDir,
+                    sourceName.substring(0, extIdx) + "html").toPath();
             Files.write(htmlFile, html.getBytes(UTF_8));
 
             Thread viewer = new Thread(new ShowPreview(htmlFile));
@@ -98,7 +132,6 @@ public class PreviewMojo extends AbstractMojo {
 
             return FileVisitResult.CONTINUE;
         }
-
     }
 
     private static class ShowPreview implements Runnable {

@@ -18,7 +18,12 @@ package ph.samson.maven.cpages;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +42,8 @@ import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
+import org.pegdown.PegDownProcessor;
+import org.pegdown.ast.RootNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ph.samson.maven.cpages.rest.Confluence;
@@ -62,9 +69,9 @@ public class DeployMojo extends AbstractMojo {
             property = "confluence.scmUrl")
     private String scmUrl;
 
-    @Parameter(property = "wikiDir",
-            defaultValue = "${project.build.directory}/wiki")
-    protected File wikiDir;
+    @Parameter(property = "srcDir",
+            defaultValue = "${basedir}/src")
+    protected File srcDir;
 
     @Parameter(name = "serverId",
             property = "confluence.serverId",
@@ -91,11 +98,12 @@ public class DeployMojo extends AbstractMojo {
     @Component
     private SettingsDecrypter decrypter;
 
+    private final List<Thread> viewers = new ArrayList<>();
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        if (!wikiDir.isDirectory()) {
-            throw new MojoExecutionException(
-                    "No wiki sources found in " + wikiDir);
+        if (!srcDir.isDirectory()) {
+            throw new MojoExecutionException("No src dir " + srcDir);
         }
 
         Server server = getServerSettings(serverId);
@@ -113,49 +121,11 @@ public class DeployMojo extends AbstractMojo {
             parentPage = null;
         }
 
-        MarkdownToConfluenceConverter converter
-                = new MarkdownToConfluenceConverter();
-
         try {
-            Files.walkFileTree(wikiDir.toPath(), converter);
+            Files.walkFileTree(srcDir.toPath(),
+                    new Deployer(confluence, parentPage));
         } catch (IOException ex) {
             throw new MojoExecutionException("Markdown conversion failed", ex);
-        }
-
-        final List<Thread> viewers = new ArrayList<>();
-        for (ConfluencePage page : converter.getPages()) {
-            List<File> attachments = page.getAttachments();
-            Page cPage = confluence.getPage(spaceKey, page.getTitle());
-            String contents = page.getContents() + footer();
-
-            if (cPage == null) {
-                log.info("Creating {}", page.getTitle());
-                if (parentPage == null) {
-                    cPage = confluence.createPage(spaceKey, page.getTitle(),
-                            contents);
-                } else {
-                    cPage = confluence.createChildPage(spaceKey,
-                            parentPage.getId(),
-                            page.getTitle(),
-                            contents);
-                }
-
-                if (!attachments.isEmpty()) {
-                    confluence.createAttachments(cPage.getId(),
-                            attachments.toArray(new File[attachments.size()]));
-                }
-            } else {
-                log.info("Updating {}", page.getTitle());
-                confluence.updatePage(cPage, contents);
-
-                if (!attachments.isEmpty()) {
-                    updateAttachments(confluence, cPage.getId(), attachments);
-                }
-            }
-
-            Thread viewer = new Thread(new ShowDeployed(cPage));
-            viewer.start();
-            viewers.add(viewer);
         }
 
         for (Thread viewer : viewers) {
@@ -244,6 +214,95 @@ public class DeployMojo extends AbstractMojo {
             }
         }
         return decrypt.getServer();
+    }
+
+    private class Deployer extends SimpleFileVisitor<Path> {
+
+        private final PegDownProcessor pdp = new PegDownProcessor();
+        private final Confluence confluence;
+        private final HashMap<Path, Page> pathMap = new HashMap<>();
+
+        private Deployer(Confluence confluence, Page topParent) {
+            this.confluence = confluence;
+            pathMap.put(srcDir.toPath(), topParent);
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(Path dir,
+                BasicFileAttributes attrs) throws IOException {
+            if (dir.toFile().equals(srcDir)) {
+                // skip top directory
+                return FileVisitResult.CONTINUE;
+            }
+
+            log.info("deploy: {}", dir);
+            File[] contentFiles = dir.toFile().listFiles((file)
+                    -> file.getName().endsWith(".md"));
+            if (contentFiles.length < 1) {
+                log.error("{} has no page content", dir);
+                throw new IllegalArgumentException("No page content in " + dir);
+            } else if (contentFiles.length > 1) {
+                log.error("{} has more than one content file: {}",
+                        dir, contentFiles);
+                throw new IllegalArgumentException(
+                        "More than one content file in " + dir);
+            }
+
+            ConfluencePage cPage = convert(contentFiles[0].toPath());
+            Page deployedPage = deploy(cPage, pathMap.get(dir.getParent()));
+            pathMap.put(dir, deployedPage);
+
+            return FileVisitResult.CONTINUE;
+        }
+
+        private ConfluencePage convert(Path markdownFile) throws IOException {
+            String markdownSource = new String(Files.readAllBytes(markdownFile),
+                    StandardCharsets.UTF_8);
+            RootNode root = pdp.parseMarkdown(markdownSource.toCharArray());
+            ConfluenceStorageSerializer css = new ConfluenceStorageSerializer(
+                    markdownFile.getParent().toFile());
+
+            String contents = css.toHtml(root);
+            List<File> attachments = css.getAttachments();
+            String title = markdownFile.getParent().getFileName().toString();
+            return new ConfluencePage(title, contents, attachments);
+        }
+
+        private Page deploy(ConfluencePage page, Page parentPage) {
+            List<File> attachments = page.getAttachments();
+            Page cPage = confluence.getPage(spaceKey, page.getTitle());
+            String contents = page.getContents() + footer();
+
+            if (cPage == null) {
+                log.info("Creating {}", page.getTitle());
+                if (parentPage == null) {
+                    cPage = confluence.createPage(spaceKey, page.getTitle(),
+                            contents);
+                } else {
+                    cPage = confluence.createChildPage(spaceKey,
+                            parentPage.getId(),
+                            page.getTitle(),
+                            contents);
+                }
+
+                if (!attachments.isEmpty()) {
+                    confluence.createAttachments(cPage.getId(),
+                            attachments.toArray(new File[attachments.size()]));
+                }
+            } else {
+                log.info("Updating {}", page.getTitle());
+                confluence.updatePage(cPage, contents);
+
+                if (!attachments.isEmpty()) {
+                    updateAttachments(confluence, cPage.getId(), attachments);
+                }
+            }
+
+            Thread viewer = new Thread(new ShowDeployed(cPage));
+            viewer.start();
+            viewers.add(viewer);
+            return cPage;
+        }
     }
 
     private static class ShowDeployed implements Runnable {
