@@ -26,7 +26,9 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.LinkedBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,6 +67,8 @@ class PreviewWatcher extends Thread {
                 }
             });
 
+            Rebuilder rebuilder = new Rebuilder();
+            rebuilder.start();
             for (;;) {
                 WatchKey key;
                 Path dir;
@@ -92,7 +96,7 @@ class PreviewWatcher extends Thread {
                                     path.register(watcher, ENTRY_CREATE,
                                             ENTRY_MODIFY);
                                 } else {
-                                    previewBuilder.build(path);
+                                    rebuilder.build(path);
                                 }
                             } catch (IOException ex) {
                                 log.warn("Error rebuilding {}", path, ex);
@@ -108,4 +112,43 @@ class PreviewWatcher extends Thread {
         }
     }
 
+    private class Rebuilder extends Thread {
+
+        static final long DEBOUNCE_MS = 500;
+        final Set<Path> pending = new ConcurrentSkipListSet<>();
+        final LinkedBlockingQueue<Path> queue = new LinkedBlockingQueue<>();
+        long lastRebuild = System.currentTimeMillis();
+
+        void build(Path path) {
+            if (pending.add(path)) {
+                try {
+                    queue.put(path);
+                } catch (InterruptedException ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            Path path;
+            for (;;) {
+                try {
+                    path = queue.take();
+                    if ((System.currentTimeMillis() - lastRebuild) < 500) {
+                        Thread.sleep(DEBOUNCE_MS);
+                    }
+                    pending.remove(path);
+                } catch (InterruptedException ex) {
+                    throw new RuntimeException(ex);
+                }
+                try {
+                    previewBuilder.build(path);
+                } catch (IOException ex) {
+                    log.warn("Error rebuilding {}", path, ex);
+                }
+                lastRebuild = System.currentTimeMillis();
+            }
+        }
+    }
 }
