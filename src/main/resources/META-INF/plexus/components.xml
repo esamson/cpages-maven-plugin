@@ -10,8 +10,13 @@
                     <lifecycle>
                         <id>default</id>
                         <phases>
-                            <test>${project.groupId}:${project.artifactId}:${project.version}:preview</test>
                             <deploy>${project.groupId}:${project.artifactId}:${project.version}:deploy</deploy>
+                        </phases>
+                    </lifecycle>
+                    <lifecycle>
+                        <id>site</id>
+                        <phases>
+                            <site>${project.groupId}:${project.artifactId}:${project.version}:preview</site>
                         </phases>
                     </lifecycle>
                 </lifecycles>
