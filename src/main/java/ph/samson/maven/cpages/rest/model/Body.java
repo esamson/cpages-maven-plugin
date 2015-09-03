@@ -28,6 +28,9 @@ public class Body {
     }
 
     public Storage getStorage() {
+        if (storage == null) {
+            storage = new Storage();
+        }
         return storage;
     }
 

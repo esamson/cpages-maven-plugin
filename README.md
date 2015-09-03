@@ -62,7 +62,7 @@ In `pom.xml` you should have, at least.
             <plugin>
                 <groupId>ph.samson.maven</groupId>
                 <artifactId>cpages-maven-plugin</artifactId>
-                <version>0.2.0</version>
+                <version>0.3.0</version>
                 <extensions>true</extensions>
             </plugin>
         </plugins>
@@ -96,8 +96,8 @@ The properties are as follows.
 starts a [LiveReload][5] server so you can continue editing your text and
 diagrams and get an automatically updated view on your browser.
 
-`mvn deploy` will render and upload the pages to your Confluence wiki. New pages
-will be created, existing ones get updated.
+`mvn deploy` will render and upload the pages to your Confluence wiki. New
+pages and attachments will be created, existing ones get updated.
 
 ### Why?
 

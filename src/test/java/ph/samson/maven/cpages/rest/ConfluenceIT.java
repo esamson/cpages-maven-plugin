@@ -132,7 +132,7 @@ public class ConfluenceIT {
     }
 
     @Test
-    public void testUpdateAttachment() {
+    public void testUpdateAttachment() throws IOException {
         String pageId = "30113837";
         Confluence instance = new Confluence(baseUri, username, password);
         AttachmentsResult attachments = instance.getAttachments(pageId);

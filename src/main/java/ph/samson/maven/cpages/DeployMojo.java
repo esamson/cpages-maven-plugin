@@ -184,7 +184,6 @@ public class DeployMojo extends AbstractMojo {
                 .append("</small>")
                 .append("</p>");
 
-        log.info("scmUrl: {}", scmUrl);
         if (scmUrl != null) {
             footer.append("<p style=\"text-align: center;\">")
                     .append("<small>")

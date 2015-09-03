@@ -39,7 +39,7 @@ import ph.samson.maven.cpages.rest.model.Version;
 
 import static com.cedarsoftware.util.io.JsonWriter.formatJson;
 import static com.cedarsoftware.util.io.JsonWriter.objectToJson;
-import static com.google.common.hash.Hashing.sha256;
+import static com.google.common.hash.Hashing.sha1;
 import static java.nio.file.Files.readAllBytes;
 
 /**
@@ -65,9 +65,9 @@ public class Confluence {
 
     public Page getPage(String spaceKey, String title) {
         WebTarget w = webTarget.queryParam("spaceKey", spaceKey)
-                .queryParam("expand", "space,body.storage,ancestors,version")
+                .queryParam("expand", "space,ancestors,version")
                 .queryParam("title", title);
-        log.info("requesting: {}", w.getUri());
+        log.debug("requesting: {}", w.getUri());
         Response response = w.request(MediaType.APPLICATION_JSON_TYPE).get();
         int status = response.getStatus();
 
@@ -88,19 +88,21 @@ public class Confluence {
 
     public Page createChildPage(String spaceKey, String parentId, String title,
             String wikiText) {
-        Page page = new Page(spaceKey, parentId, title, wikiText, "storage");
-        if (log.isInfoEnabled()) {
-            log.info("createPage: {}", objectToJson(page));
+        /*
+         * Since it is not possible to set a Version message when creating a
+         * new page, we have nowhere to place the content hash.
+         * Instead, we create with an empty body and immediately update with
+         * the actual body so we get the content hash in Version 2.
+         */
+        Page page = new Page(spaceKey, parentId, title, "New Page.", "storage");
+        if (log.isDebugEnabled()) {
+            log.debug("createPage: {}", objectToJson(page));
         }
         Response response = webTarget.request().post(Entity.json(page));
         int status = response.getStatus();
+        logDebug(response, status);
 
-        if (log.isInfoEnabled() && response.bufferEntity()) {
-            String body = response.readEntity(String.class);
-            log.info("response: {}; {}", status, formatJson(body));
-        }
-
-        return response.readEntity(Page.class);
+        return updatePage(response.readEntity(Page.class), wikiText);
     }
 
     public Page createPage(String spaceKey, String title, String wikiText) {
@@ -108,11 +110,19 @@ public class Confluence {
     }
 
     public Page updatePage(Page page, String newWikiText) {
+        String hash = sha1().hashUnencodedChars(newWikiText).toString();
+        if (hash.equals(page.getVersion().getMessage())) {
+            log.info("No changes to {} body", page.getTitle());
+            return page;
+        }
+
         WebTarget pageTarget = webTarget.path(page.getId());
 
         page.getBody().getStorage().setValue(newWikiText);
         page.getBody().getStorage().setRepresentation("storage");
-        page.setVersion(new Version(page.getVersion().getNumber() + 1));
+        Version version = new Version(page.getVersion().getNumber() + 1);
+        version.setMessage(hash);
+        page.setVersion(version);
         if (page.getAncestors().size() > 1) {
             page.setAncestors(ImmutableList.of(page.getAncestors().get(
                     page.getAncestors().size() - 1)));
@@ -129,7 +139,7 @@ public class Confluence {
         WebTarget attachment = webTarget.path(pageId).path("child")
                 .path("attachment")
                 .queryParam("expand", "container,version");
-        log.info("requesting: {}", attachment.getUri());
+        log.debug("requesting: {}", attachment.getUri());
         Response response = attachment
                 .request(MediaType.APPLICATION_JSON_TYPE)
                 .get();
@@ -147,8 +157,9 @@ public class Confluence {
 
         FormDataMultiPart multiPart = new FormDataMultiPart();
         for (File fileEntity : files) {
+            log.info("Creating attachment {}", fileEntity);
             multiPart.bodyPart(new FileDataBodyPart("file", fileEntity));
-            multiPart.field("comment", sha256().hashBytes(
+            multiPart.field("comment", sha1().hashBytes(
                     readAllBytes(fileEntity.toPath())).toString());
         }
 
@@ -163,16 +174,23 @@ public class Confluence {
     }
 
     public AttachmentsResult updateAttachment(Attachment attachment,
-            File fileEntity) {
+            File fileEntity) throws IOException {
+        String hash = sha1().hashBytes(
+                readAllBytes(fileEntity.toPath())).toString();
+        if (hash.equals(attachment.getMetadata().getComment())) {
+            log.info("No changes to attachment {}", attachment.getTitle());
+            return null;
+        }
+
         WebTarget data = webTarget.path(attachment.getContainer().getId())
                 .path("child").path("attachment")
                 .path(attachment.getId())
                 .path("data");
-        log.info("updating {} with {}", data.getUri(), fileEntity);
+        log.info("Updating attachment {}", attachment.getTitle());
 
         FormDataMultiPart multiPart = new FormDataMultiPart();
         multiPart.bodyPart(new FileDataBodyPart("file", fileEntity));
-        multiPart.field("comment", fileEntity.getName() + "xxx");
+        multiPart.field("comment", hash);
 
         Response response = data.request(MediaType.APPLICATION_JSON_TYPE)
                 .header("X-Atlassian-Token", "no-check")

@@ -21,6 +21,7 @@ public class Version {
     private String when;
     private int number;
     private Boolean minorEdit;
+    private String message;
 
     public Version() {
     }
@@ -51,5 +52,13 @@ public class Version {
 
     public void setMinorEdit(Boolean minorEdit) {
         this.minorEdit = minorEdit;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
     }
 }

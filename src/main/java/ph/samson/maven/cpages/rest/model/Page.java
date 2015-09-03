@@ -50,6 +50,9 @@ public class Page {
     }
 
     public Body getBody() {
+        if (body == null) {
+            body = new Body();
+        }
         return body;
     }
 
@@ -106,6 +109,9 @@ public class Page {
     }
 
     public Version getVersion() {
+        if (version == null) {
+            version = new Version();
+        }
         return version;
     }
 
